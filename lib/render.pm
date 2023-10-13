@@ -1,6 +1,8 @@
 package render;
 
 use common::sense;
+use feature 'unicode_strings';
+use Encode qw(from_to);
 use File::Slurper qw(read_text);
 use Template;
 use CommonMark qw(:node :event);
@@ -37,9 +39,14 @@ sub get_file {
 
 	my ( $file_headers, $file_body ) = split( '\n\n', $file, 2 );
 
+	if ( !$file_body ) {
+		$file =~ m/^---\n(.*?)\n---\n(.*)$/s;
+		( $file_headers, $file_body ) = ( $1, $2 );
+	}
+
 	$file_headers =~ s/^---$//mg;
 
-	my $headers = thaw($file_headers);
+	my $headers = YAML::thaw($file_headers);
 
 	return ( $headers, $file_body );
 
@@ -53,12 +60,12 @@ sub markdown {
 
 	my $md;
 
-	my ( $headers, $file_body ) = try { $s->get_file( filename => $arg{filename} ) } catch { return 404 };
+	my ( $headers, $file_body ) = try { $s->get_file( filename => $arg{filename} ) } catch { return ( 404, undef ) };
 
 	$s->{tt}->{headers} = $headers;
 
 	if ( $headers->{parse} ) {
-		$file_body = $s->template( template_data => $file_body, return_string => 1 );
+		$file_body = $s->template( template_data => $file_body, return_string => 1, binmode => ':utf8' );
 	}
 
 	# links
@@ -73,7 +80,7 @@ sub markdown {
 
 	$s->{tt}->{body} = $s->markdown_render($md);
 
-	$s->{app}->{body}->[0] = $s->template();
+	return $s->template();
 
 }
 
@@ -137,18 +144,84 @@ sub markdown_apply_extensions {
 			my $parent_node = $node->parent;
 			$node->replace($callout);
 
-			print STDERR "\t\t\t\e[33mrecursing!\e[m\n";
 			return $s->markdown_apply_extensions($parent_node);
 
 		}
 
 	}
+	elsif ( $node->get_type == NODE_LIST ) {
+
+		# the holy grail: <dl>
+		# check in list->item->p->text
+		if ( $node->first_child->first_child->first_child->get_literal =~ m/\s::\s/ ) {
+			print STDERR "\e[32mdl\e[m\n";
+			my $dl = {
+				on_enter => qq{<ul>},
+				on_exit  => qq{</ul>},
+				children => [],
+			};
+			my $items = $node->iterator;
+			my %evstr = ( EVENT_ENTER => 'enter', EVENT_EXIT => 'exit', EVENT_DONE => 'done' );
+			my $depth = 0;
+			while ( my ( $ev, $item ) = $items->next ) {
+				$depth += 1 if $ev == EVENT_ENTER;
+				$depth -= 1 if $ev == EVENT_EXIT;
+
+				# transform list items into custom DDs
+				if ( $ev == EVENT_EXIT && $item->get_type == NODE_ITEM ) {
+					if ( $item->first_child->first_child->get_literal =~ m/^(.*?)\w*::\w*(.*?)$/ ) {
+						my ( $dt_text, $dd_text ) = ( $1, $2 );
+						if ( $dt_text ) {
+							my $dt = CommonMark->create_custom_block(
+								on_enter => qq{<dt>},
+								on_exit => qq{</dt>},
+								children => [ CommonMark->create_paragraph( text => $dt_text ) ],
+							);
+							push @{$dl->{children}}, $dt;
+						}
+
+						my $ii = $item->iterator;
+						my @children;
+						my $depth = 0;
+						while ( my ( $ev, $item ) = $ii->next ) {
+							$depth += 1 if $ev == EVENT_ENTER;
+							$depth -= 1 if $ev == EVENT_EXIT;
+							if ( $depth == 1 && $ev == EVENT_EXIT ) {
+								push @children, $item;
+							}
+						}
+						print STDERR Dumper \@children;
+						
+						my $dd = CommonMark->create_custom_block(
+							on_enter => qq{<dd>},
+							on_exit => qq{</dd>},
+							children => \@children,
+						);
+						push @{$dl->{children}}, $dd;
+					}
+				}
+				
+				if ( $ev == 2 ) {
+					print STDERR (" " x $depth ) . "enter:".$item->get_type_string."\n";
+				}
+				if ( $ev == 3 ) {
+					print STDERR (" " x $depth) . "exit:".$item->get_type_string ."\n";
+				}
+			}
+			my $dl_node = CommonMark->create_custom_block( %{$dl} );
+			print STDERR "\e[35m" . $dl_node->render_html . "\e[m\n\n";
+
+			my $parent_node = $node->parent;
+			$node->replace( $dl_node );
+			return $s->markdown_apply_extensions($parent_node);
+		}
+
+	}
 	elsif ( $node->get_type == NODE_IMAGE ) {
-		print STDERR "\t\e[1m " . $node->get_start_line . ":" . $node->get_start_column . " " . "(" . $node->get_type_string . ") " . $node->get_url . "\e[m\n";
+		#print STDERR "\t\e[1m " . $node->get_start_line . ":" . $node->get_start_column . " " . "(" . $node->get_type_string . ") " . $node->get_url . "\e[m\n";
 	}
 	elsif ( my $child = $node->first_child ) {
 
-		print STDERR "\ttraversing children\n";
 		do {
 			$s->markdown_apply_extensions($child);
 		} while ( $child = $child->next );
@@ -197,7 +270,7 @@ sub markdown_render {
 
 	$md = $s->markdown_apply_extensions($md);
 
-	return $md->render_html(CommonMark::OPT_UNSAFE);
+	my $html = $md->render_html( CommonMark::OPT_UNSAFE | CommonMark::OPT_VALIDATE_UTF8 );
 
 }
 
@@ -220,7 +293,7 @@ sub template {
 		}
 	) || die $Template::ERROR;
 
-	my $result = $tt->process( $tt_file, $s->{tt}, \$output );
+	my $result = $tt->process( $tt_file, $s->{tt}, \$output, binmode => ':utf8' );
 
 	die $tt->error() unless $result;
 

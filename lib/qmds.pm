@@ -3,6 +3,7 @@ package qmds;
 use common::sense;
 use File::Slurper 'read_text';
 use File::MimeInfo::Magic;
+use Encode;
 use render;
 
 use Data::Dumper 'Dumper';
@@ -29,16 +30,15 @@ sub dispatch {
 
 	if ( my $mdfile = $s->get_file_from_uri($uri) ) {
 		push @{ $s->{app}->{headers} }, ( 'Content-Type' => 'text/html' );
-		render->new($s)->markdown( uri => $uri, filename => $mdfile );
-		return 200;
+		my $tt_out = render->new($s)->markdown( uri => $uri, filename => $mdfile );
+		return ( 200, Encode::encode_utf8($tt_out) );
 	}
 
 	if ( my $static = $s->get_static_file_from_uri($uri) ) {
-		$s->{app}->{body} = $static;
-		return 200;
+		return ( 200, $static );
 	}
 
-	return 404;
+	return ( 404, undef );
 
 }
 

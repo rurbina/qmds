@@ -8,9 +8,12 @@ use db;
 use JSON::XS 'decode_json';
 use File::Slurper qw(read_text);
 use Capture::Tiny qw(capture_stdout);
-
 use Data::Dumper 'Dumper';
 $Data::Dumper::Sortkeys = 1;
+
+binmode( STDIN,  ':utf8' );
+binmode( STDOUT, ':utf8' );
+binmode( STDERR, ':utf8' );
 
 my $config_file = decode_json( read_text("qmds.config") );
 my $config      = $config_file->{hosts}->{ $config_file->{hostname}->{default} };
@@ -35,10 +38,13 @@ my $app = sub {
 
 	my $handler = qmds->new($self);
 
-	$self->{status} = $handler->dispatch( $env->{REQUEST_URI} );
+	( $self->{status}, $self->{body}->[0] ) = $handler->dispatch( $env->{REQUEST_URI} );
+	if ( ref( $self->{body}->[0] ) eq 'GLOB' ) {
+		$self->{body} = $self->{body}->[0];
+	}
 
 	if ( $self->{status} != 200 && exists( $config->{"error_$self->{status}"} ) ) {
-		$self->{body}->[0] = capture_stdout sub { $handler->dispatch( $config->{"error_$self->{status}"} ) };
+		( undef, $self->{body}->[0] ) = capture_stdout sub { $handler->dispatch( $config->{"error_$self->{status}"} ) };
 	}
 
 	return [ @{$self}{ 'status', 'headers', 'body' } ];
