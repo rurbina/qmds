@@ -8,6 +8,7 @@ use Template;
 use CommonMark qw(:node :event);
 use YAML       qw(thaw);
 use Try::Tiny;
+use List::Util qw(any);
 use Data::Dumper qw(Dumper);
 use tt;
 $Data::Dumper::SortKeys = 1;
@@ -154,71 +155,93 @@ sub markdown_apply_extensions {
 		# the holy grail: <dl>
 		# check in list->item->p->text
 		if ( $node->first_child->first_child->first_child->get_literal =~ m/\s::\s/ ) {
-			print STDERR "\e[32mdl\e[m\n";
+
 			my $dl = {
-				on_enter => qq{<ul>},
-				on_exit  => qq{</ul>},
+				on_enter => qq{<dl>},
+				on_exit  => qq{</dl>},
 				children => [],
 			};
-			my $items = $node->iterator;
-			my %evstr = ( EVENT_ENTER => 'enter', EVENT_EXIT => 'exit', EVENT_DONE => 'done' );
-			my $depth = 0;
-			while ( my ( $ev, $item ) = $items->next ) {
-				$depth += 1 if $ev == EVENT_ENTER;
-				$depth -= 1 if $ev == EVENT_EXIT;
 
-				# transform list items into custom DDs
-				if ( $ev == EVENT_EXIT && $item->get_type == NODE_ITEM ) {
-					if ( $item->first_child->first_child->get_literal =~ m/^(.*?)\w*::\w*(.*?)$/ ) {
-						my ( $dt_text, $dd_text ) = ( $1, $2 );
-						if ( $dt_text ) {
-							my $dt = CommonMark->create_custom_block(
-								on_enter => qq{<dt>},
-								on_exit => qq{</dt>},
-								children => [ CommonMark->create_paragraph( text => $dt_text ) ],
-							);
-							push @{$dl->{children}}, $dt;
-						}
+			my @items = $node->get_children();
 
-						my $ii = $item->iterator;
-						my @children;
-						my $depth = 0;
-						while ( my ( $ev, $item ) = $ii->next ) {
-							$depth += 1 if $ev == EVENT_ENTER;
-							$depth -= 1 if $ev == EVENT_EXIT;
-							if ( $depth == 1 && $ev == EVENT_EXIT ) {
-								push @children, $item;
-							}
-						}
-						print STDERR Dumper \@children;
-						
-						my $dd = CommonMark->create_custom_block(
-							on_enter => qq{<dd>},
-							on_exit => qq{</dd>},
-							children => \@children,
-						);
-						push @{$dl->{children}}, $dd;
+			foreach my $item (@items) {
+
+				my ( $dt, $dd );
+
+				$dd = { on_enter => qq{<dd>}, on_exit => qq{</dd>}, children => [] };
+
+				# avoid the <p> if we can
+				if ( scalar( $item->get_children ) == 1 && $item->first_child->get_type == NODE_PARAGRAPH ) {
+					$dd->{children} = [ $item->first_child->get_children ];
+				}
+				else {
+					$dd->{children} = [ $item->get_children ];
+				}
+
+				if ( $item->first_child->first_child->get_type == NODE_TEXT ) {
+
+					$item->first_child->first_child->get_literal =~ m/^(.*?)\w*::\w*(.*?)?$/;
+
+					my ( $dt_text, $dd_text ) = ( $1, $2 );
+
+					# if text is found, adjust first child in <dd>
+					if ($dt_text) {
+						$dt = { on_enter => qq{<dt>}, on_exit => qq{</dt>}, text => $dt_text };
+
+						shift @{ $dd->{children} };
+						unshift @{ $dd->{children} }, CommonMark->create_text( literal => $dd_text );
 					}
 				}
-				
-				if ( $ev == 2 ) {
-					print STDERR (" " x $depth ) . "enter:".$item->get_type_string."\n";
-				}
-				if ( $ev == 3 ) {
-					print STDERR (" " x $depth) . "exit:".$item->get_type_string ."\n";
-				}
+
+				push( @{ $dl->{children} }, CommonMark->create_custom_block( %{$dt} ) ) if $dt;
+				push( @{ $dl->{children} }, CommonMark->create_custom_block( %{$dd} ) ) if $dd;
+
 			}
+
 			my $dl_node = CommonMark->create_custom_block( %{$dl} );
-			print STDERR "\e[35m" . $dl_node->render_html . "\e[m\n\n";
 
 			my $parent_node = $node->parent;
-			$node->replace( $dl_node );
+			$node->replace($dl_node);
+
 			return $s->markdown_apply_extensions($parent_node);
+
 		}
 
 	}
 	elsif ( $node->get_type == NODE_IMAGE ) {
-		#print STDERR "\t\e[1m " . $node->get_start_line . ":" . $node->get_start_column . " " . "(" . $node->get_type_string . ") " . $node->get_url . "\e[m\n";
+
+		my ( $url, $text );
+
+		$url = $node->get_url;
+
+		next unless scalar $node->get_children;
+
+		$text = $node->first_child->get_literal // '';
+
+		$text      =~ m/^(?<title>.*?)\|(?<class>[^|]+)\|(?<size>[^|]+)$/
+		  || $text =~ m/^(?<title>.*?)\|(?<size>[^|]+)$/
+		  || $text =~ m/^(?<title>.*)$/;
+
+		my ( $title, $size, $class ) = @+{ 'title', 'size', 'class' };
+
+		my $escaped_title = $s->escape_xml($title);
+
+		my $style;
+		if ($size) {
+			if ( $size =~ m/^(\d+)x(\d+)$/ ) {
+				$style = qq(style="width:${1}px;height:${2}px");
+			}
+		}
+
+		my $html = qq{<img src="$url" $class $style title="$escaped_title" />};
+		$html =~ s/  +/ /;
+
+		my $img = CommonMark->create_html_inline( literal => $html );
+
+		my $parent_node = $node->parent;
+		$node->replace($img);
+		return $s->markdown_apply_extensions($parent_node);
+
 	}
 	elsif ( my $child = $node->first_child ) {
 
@@ -298,6 +321,71 @@ sub template {
 	die $tt->error() unless $result;
 
 	return $output;
+
+}
+
+sub escape_xml {
+
+	my ( $s, $data ) = @_;
+
+	$data =~ s/&/&amp;/sg;
+	$data =~ s/</&lt;/sg;
+	$data =~ s/>/&gt;/sg;
+	$data =~ s/"/&quot;/sg;
+
+	return $data;
+
+}
+
+sub CommonMark::Node::is_leaf {
+
+	my ( $item ) = @_;
+
+	my @leaves = (
+		CommonMark::NODE_HTML,
+		CommonMark::NODE_HRULE,
+		CommonMark::NODE_CODE_BLOCK,
+		CommonMark::NODE_TEXT,
+		CommonMark::NODE_SOFTBREAK,
+		CommonMark::NODE_LINEBREAK,
+		CommonMark::NODE_CODE,
+		CommonMark::NODE_INLINE_HTML,
+	);
+
+	return any sub { $_ == $item->get_type }, @leaves;
+	
+}
+
+sub CommonMark::Node::get_children {
+
+	my ( $node ) = @_;
+
+	my @children;
+
+	my $ii    = $node->iterator;
+	my $depth = 0;
+
+	while ( my ( $ev, $item ) = $ii->next ) {
+
+		if ( $ev == EVENT_ENTER ) {
+
+			$depth++;
+
+			# we won't go all the way down, only the immediate children
+			if ( $depth == 2 ) {
+				push @children, $item;
+			}
+
+			$depth-- if $item->is_leaf;
+		}
+
+		if ( $ev == EVENT_EXIT ) {
+			$depth--;
+		}
+
+	}
+
+	return @children;
 
 }
 
