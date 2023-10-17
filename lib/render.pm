@@ -358,31 +358,14 @@ sub CommonMark::Node::is_leaf {
 
 sub CommonMark::Node::get_children {
 
-	my ( $node ) = @_;
+	my ( $parent ) = @_;
 
 	my @children;
 
-	my $ii    = $node->iterator;
-	my $depth = 0;
-
-	while ( my ( $ev, $item ) = $ii->next ) {
-
-		if ( $ev == EVENT_ENTER ) {
-
-			$depth++;
-
-			# we won't go all the way down, only the immediate children
-			if ( $depth == 2 ) {
-				push @children, $item;
-			}
-
-			$depth-- if $item->is_leaf;
-		}
-
-		if ( $ev == EVENT_EXIT ) {
-			$depth--;
-		}
-
+	if ( my $node = $parent->first_child ) {
+		do {
+			push @children, $node;
+		} while ( $node = $node->next );
 	}
 
 	return @children;
