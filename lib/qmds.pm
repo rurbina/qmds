@@ -29,7 +29,7 @@ sub dispatch {
 	$uri = "/$s->{config}->{default}" if $uri eq '/';
 
 	if ( my $mdfile = $s->get_file_from_uri($uri) ) {
-		push @{ $s->{app}->{headers} }, ( 'Content-Type' => 'text/html' );
+		push @{ $s->{app}->{headers} }, ( 'Content-Type' => 'text/html; charset=UTF-8' );
 		my $tt_out = render->new($s)->markdown( uri => $uri, filename => $mdfile );
 		return ( 200, Encode::encode_utf8($tt_out) );
 	}
