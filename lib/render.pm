@@ -38,14 +38,14 @@ sub get_file {
 
 	my $file = read_text( $arg{filename} );
 
-	my ( $file_headers, $file_body ) = split( '\n\n', $file, 2 );
+	my ( $file_headers, $file_body );
 
-	if ( !$file_body ) {
-		$file =~ m/^---\n(.*?)\n---\n(.*)$/s;
+	if ( $file =~ m/^---\n(.*)\n---\n(.*)$/s ) {
 		( $file_headers, $file_body ) = ( $1, $2 );
 	}
-
-	$file_headers =~ s/^---$//mg;
+	else {
+		( $file_headers, $file_body ) = split( '\n\n', $file, 2 );
+	}
 
 	my $headers = YAML::thaw($file_headers);
 
@@ -77,9 +77,13 @@ sub markdown {
 
 	$md = CommonMark->parse( string => $file_body, validate_utf8 => 1 ) || die 'file parse error';
 
-	$s->{app}->{db}->touch( $arg{uri}, $arg{filename}, $headers );
+	$s->{app}->{db}->touch( uri => $arg{uri}, filename => $arg{filename}, headers => $headers );
 
-	$s->{tt}->{body} = $s->markdown_render($md);
+	my $body = $s->markdown_render($md);
+
+	return $body if $arg{no_template};
+
+	$s->{tt}->{body} = $body;
 
 	return $s->template();
 
@@ -241,6 +245,42 @@ sub markdown_apply_extensions {
 		my $parent_node = $node->parent;
 		$node->replace($img);
 		return $s->markdown_apply_extensions($parent_node);
+
+	}
+	elsif ( $node->get_type == NODE_HTML_BLOCK && $node->get_literal =~ m/^<!--#blog-posts\s/ ) {
+
+		my @posts = $s->{app}->{db}->query(
+			where => qq{and tags like '%"blog"%'},
+			limit => 20,
+			order => q{order by json_extract(headers,'$.timestamp') desc},
+		);
+
+		my @md_posts;
+		foreach my $post (@posts) {
+
+			my ( $headers, $md_body ) = $s->get_file( filename => $post->{path} );
+
+			$md_body = "$headers->{author} \@ $headers->{timestamp}\n\n" . $md_body;
+
+			# truncate at first hr
+			if ( $md_body =~ m/^(.*?)\n----+\n/s ) {
+				$md_body = $1;
+				$md_body .= "\n\n[Seguir leyendo]($post->{uri})";
+			}
+
+			# increase header level
+			$md_body =~ s/^(#{1,5}) /#$1 /smg;
+
+			print STDERR "\e[32m$md_body\e[m\n";
+
+			push @md_posts, $md_body;
+		}
+
+		my $md_posts = join "\n\n----\n\n", @md_posts;
+		my $md       = CommonMark->parse( string => $md_posts );
+		my $html     = $s->markdown_render($md);
+
+		$node->set_literal($html);
 
 	}
 	elsif ( my $child = $node->first_child ) {

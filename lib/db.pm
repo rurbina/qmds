@@ -14,7 +14,7 @@ sub new {
 		app     => $app,
 		db_file => $app->{config}->{db_file},
 		dbh     => undef,
-		json    => JSON::XS->new(),
+		json    => JSON::XS->new()->canonical(),
 	};
 
 	$s->{dbh} = DBI->connect( "dbi:SQLite:dbname=$s->{db_file}", "", "" ) || die 'no db';
@@ -25,28 +25,44 @@ sub new {
 
 sub touch {
 
-	my ( $s, $uri, $filename, $headers ) = @_;
+	my ( $s, %arg ) = @_;
 
 	my $sql = qq{
-	insert into "index" (uri, path, mtime, title, last_check, tags, headers) values ( ?, ?, ?, ?, ?, ?, ?)
+	insert into meta_index (uri, path, mtime, title, last_check, tags, headers)
+		values ( ?, ?, ?, ?, datetime('now'), ?, ?)
 	on conflict do update set
  		path = excluded.path, mtime = excluded.mtime, title = excluded.title,
 		last_check = excluded.last_check, tags = excluded.tags, headers = excluded.headers
 	};
 
-	$s->{dbh}->do( $sql, undef, $uri, $filename, $mtime, $headers->{title}, undef, $s->{json}->encode( $headers->{tags} // [] ), $s->{json}->encode( $headers // {} ) );
+	$s->{dbh}->do( $sql, undef, $arg{uri}, $arg{filename}, $arg{mtime}, $arg{headers}->{title}, $s->{json}->encode( $arg{headers}->{tags} // [] ), $s->{json}->encode( $arg{headers} // {} ) );
 
 }
 
 sub query {
 
-	my ( $s, %pp ) = @_;
+	my ( $s, %arg ) = @_;
 
-	my $sql = qq{select * from "index" limit 20};
+	$arg{limit}  //= 20;
+	$arg{offset} //= 0;
+
+	my $sql = qq{
+	select uri, path, mtime, title, last_check, tags, headers from meta_index
+	where true $arg{where}
+	$arg{order}
+	limit $arg{limit} offset $arg{offset}
+	};
+	print STDERR "\e[1m$sql\e[m\n";
 
 	my @data = $s->{dbh}->selectall_array($sql);
 
-	return @data ? \@data : undef;
+	return undef unless @data;
+
+	my @keys = qw(uri path mtime title last_check tags headers);
+
+	my @rows = map { my %a; @a{@keys} = @{$_}; \%a } @data;
+
+	return @rows;
 
 }
 
