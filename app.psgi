@@ -15,7 +15,7 @@ binmode( STDIN,  ':utf8' );
 binmode( STDOUT, ':utf8' );
 binmode( STDERR, ':utf8' );
 
-my $config_file = decode_json( read_text("qmds.config") );
+my $config_file = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config") );
 my $config      = $config_file->{hosts}->{ $config_file->{hostname}->{default} };
 my $db;
 
