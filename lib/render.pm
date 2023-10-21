@@ -249,18 +249,25 @@ sub markdown_apply_extensions {
 	}
 	elsif ( $node->get_type == NODE_HTML_BLOCK && $node->get_literal =~ m/^<!--#blog-posts\s/ ) {
 
+		my $items_per_page = 20;
+		my $page = $s->{app}->{get}->{page};
+		my $offset = ( $page - 1 ) * $items_per_page;
+
+		my $where = qq{and tags like '%"blog"%'};
 		my @posts = $s->{app}->{db}->query(
-			where => qq{and tags like '%"blog"%'},
-			limit => 20,
+			where => $where,
+			offset => $offset,
+			limit => $items_per_page,
 			order => q{order by json_extract(headers,'$.timestamp') desc},
 		);
 
 		my @md_posts;
+
 		foreach my $post (@posts) {
 
 			my ( $headers, $md_body ) = $s->get_file( filename => $post->{path} );
 
-			$md_body = "$headers->{author} \@ $headers->{timestamp}\n\n" . $md_body;
+			$md_body = "<div class=\"blog-post-meta\">$headers->{author} \@ $headers->{timestamp}</div>\n\n" . $md_body;
 
 			# truncate at first hr
 			if ( $md_body =~ m/^(.*?)\n----+\n/s ) {
@@ -271,9 +278,43 @@ sub markdown_apply_extensions {
 			# increase header level
 			$md_body =~ s/^(#{1,5}) /#$1 /smg;
 
-			print STDERR "\e[32m$md_body\e[m\n";
+			# first header should link to the full post
+			$md_body =~ s/^(#+) ([^\n]+)/$1 [$2]($post->{uri})/sm;
 
 			push @md_posts, $md_body;
+		}
+
+		# pagination
+		my $count = $s->{app}->{db}->query( count => 1, where => $where );
+
+		my $total_pages = int($count / $items_per_page) + ( $count % $items_per_page ? 1 : 0 );
+
+		if ( $total_pages > 1 ) {
+
+			my $uri = $s->{app}->{uri};
+
+			my @items;
+
+			push( @items, $page > 1 ? qq{<a href="$uri?page=1">&lt;&lt;</a>} : "&lt;&lt;" );
+
+			my $prev = $page - 1;
+			push( @items, $prev > 0 ? qq{<a href="$uri?page=$prev">&lt;</a>} : "&lt;" );
+
+			foreach my $n ( 1 .. $total_pages ) {
+				print STDERR "\e[1m\t$n of $total_pages\e[m\n";
+				push @items, ( $n == $page ? $n : qq{<a href="$uri?page=$n">$n</a>} );
+			}
+
+			my $next = $page + 1;
+			push( @items, $next <= $total_pages ? qq{<a href="$uri?page=$next">&gt;</a>} : "&gt;" );
+
+			push( @items, $page < $total_pages ? qq{<a href="$uri?page=$total_pages">&gt;&gt;</a>} : "&gt;&gt;" );
+
+			my $items = join( '', map {qq{\t<span>$_</span>\n}} @items );
+			my $div   = qq{<div class="pagination"><span>Páginas</span>$items</div>};
+			print STDERR "\e[1m$div\e[m\n";
+			push @md_posts, $div;
+
 		}
 
 		my $md_posts = join "\n\n----\n\n", @md_posts;

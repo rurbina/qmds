@@ -5,6 +5,7 @@ use lib 'lib';
 use qmds;
 use render;
 use db;
+use Plack::Request;
 use JSON::XS 'decode_json';
 use File::Slurper qw(read_text);
 use Capture::Tiny qw(capture_stdout);
@@ -15,7 +16,7 @@ binmode( STDIN,  ':utf8' );
 binmode( STDOUT, ':utf8' );
 binmode( STDERR, ':utf8' );
 
-my $config_file = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config") );
+my $config_file = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) );
 my $config      = $config_file->{hosts}->{ $config_file->{hostname}->{default} };
 my $db;
 
@@ -33,12 +34,17 @@ my $app = sub {
 		headers => [],
 		body    => undef,
 		config  => $config,
+		uri     => $env->{PATH_INFO},
 		db      => $db,
 	};
 
+	my $request = Plack::Request->new($env);
+	$self->{get}  = $request->query_parameters;
+	$self->{post} = $request->body_parameters;
+
 	my $handler = qmds->new($self);
 
-	( $self->{status}, $self->{body}->[0] ) = $handler->dispatch( $env->{REQUEST_URI} );
+	( $self->{status}, $self->{body}->[0] ) = $handler->dispatch( $env->{PATH_INFO} );
 	if ( ref( $self->{body}->[0] ) eq 'GLOB' ) {
 		$self->{body} = $self->{body}->[0];
 	}

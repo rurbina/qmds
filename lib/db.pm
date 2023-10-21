@@ -46,19 +46,28 @@ sub query {
 	$arg{limit}  //= 20;
 	$arg{offset} //= 0;
 
+	my @keys = qw(uri path mtime title last_check tags headers);
+
+	my $columns = join( ',', @keys );
+
+	if ( $arg{count} ) {
+		@keys    = "count";
+		$columns = "count(*)";
+	}
+
 	my $sql = qq{
-	select uri, path, mtime, title, last_check, tags, headers from meta_index
+	select $columns
+	from meta_index
 	where true $arg{where}
 	$arg{order}
 	limit $arg{limit} offset $arg{offset}
 	};
-	print STDERR "\e[1m$sql\e[m\n";
 
 	my @data = $s->{dbh}->selectall_array($sql);
 
-	return undef unless @data;
+	return $data[0]->[0] if $arg{count};
 
-	my @keys = qw(uri path mtime title last_check tags headers);
+	return () unless @data;
 
 	my @rows = map { my %a; @a{@keys} = @{$_}; \%a } @data;
 
