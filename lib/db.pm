@@ -1,7 +1,8 @@
 package db;
 
-use DBD::SQLite;
 use DBI;
+use DBD::SQLite;
+use DBD::SQLite::Constants ':dbd_sqlite_string_mode';
 use JSON::XS;
 use Data::Dumper qw(Dumper);
 $Data::Dumper::SortKeys = 1;
@@ -18,6 +19,7 @@ sub new {
 	};
 
 	$s->{dbh} = DBI->connect( "dbi:SQLite:dbname=$s->{db_file}", "", "" ) || die 'no db';
+	$s->{dbh}->{sqlite_string_mode} = DBD_SQLITE_STRING_MODE_UNICODE_STRICT;
 
 	bless $s;
 
@@ -36,6 +38,16 @@ sub touch {
 	};
 
 	$s->{dbh}->do( $sql, undef, $arg{uri}, $arg{filename}, $arg{mtime}, $arg{headers}->{title}, $s->{json}->encode( $arg{headers}->{tags} // [] ), $s->{json}->encode( $arg{headers} // {} ) );
+
+}
+
+sub delete_uri {
+
+	my ( $s, $uri ) = @_;
+
+	my $sql = qq{delete from meta_index where uri = ?};
+
+	$s->{dbh}->do( $sql, undef, $uri );
 
 }
 
@@ -71,7 +83,46 @@ sub query {
 
 	my @rows = map { my %a; @a{@keys} = @{$_}; \%a } @data;
 
+	if ( $arg{parse_meta} ) {
+
+		foreach my $item (@rows) {
+
+			$item->{link} = qq{<a href="$item->{uri}">$item->{title}</a>};
+
+			my $meta = eval { decode_json( $item->{headers} ) } // {};
+			foreach my $key ( sort keys %$meta ) {
+				$item->{"meta_$key"} = $meta->{$key};
+			}
+
+		}
+
+	}
+
 	return @rows;
+
+}
+
+sub get_absolute_uri {
+
+	my ( $s, $uri ) = @_;
+
+	my $sql = qq{
+	select uri
+	from meta_index
+	where uri like ?
+	order by length(uri) desc
+	};
+
+	my @uris = map { @{$_} } $s->{dbh}->selectall_array( $sql, {}, "\%$uri%" );
+
+	return undef unless @uris;
+
+	# find full matches
+	my @matches = grep { $_ =~ m{/$uri} } @uris;
+
+	return $matches[0] if scalar(@matches);
+
+	return undef;
 
 }
 

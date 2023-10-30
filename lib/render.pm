@@ -7,6 +7,7 @@ use File::Slurper qw(read_text);
 use Template;
 use CommonMark qw(:node :event);
 use YAML       qw(thaw);
+use JSON::XS;
 use Try::Tiny;
 use List::Util qw(any);
 use Data::Dumper qw(Dumper);
@@ -69,15 +70,16 @@ sub markdown {
 		$file_body = $s->template( template_data => $file_body, return_string => 1, binmode => ':utf8' );
 	}
 
-	# links
-	if ( $file_body =~ m/\[\[.*?\]\]/m ) {
-
-		#$file_body = $s->mext_pre_links($file_body);
+	# wikilinks
+	if ( $file_body =~ m/\[\[.*?\]\]/g ) {
+		$file_body = $s->mext_pre_links($file_body);
 	}
 
 	$md = CommonMark->parse( string => $file_body, validate_utf8 => 1 ) || die 'file parse error';
 
 	$s->{app}->{db}->touch( uri => $arg{uri}, filename => $arg{filename}, headers => $headers );
+
+	return 1 if $arg{touch_only};
 
 	my $body = $s->markdown_render($md);
 
@@ -250,15 +252,15 @@ sub markdown_apply_extensions {
 	elsif ( $node->get_type == NODE_HTML_BLOCK && $node->get_literal =~ m/^<!--#blog-posts\s/ ) {
 
 		my $items_per_page = 20;
-		my $page = $s->{app}->{get}->{page};
-		my $offset = ( $page - 1 ) * $items_per_page;
+		my $page           = $s->{app}->{get}->{page};
+		my $offset         = ( $page - 1 ) * $items_per_page;
 
 		my $where = qq{and tags like '%"blog"%'};
 		my @posts = $s->{app}->{db}->query(
-			where => $where,
+			where  => $where,
 			offset => $offset,
-			limit => $items_per_page,
-			order => q{order by json_extract(headers,'$.timestamp') desc},
+			limit  => $items_per_page,
+			order  => q{order by json_extract(headers,'$.timestamp') desc},
 		);
 
 		my @md_posts;
@@ -281,13 +283,16 @@ sub markdown_apply_extensions {
 			# first header should link to the full post
 			$md_body =~ s/^(#+) ([^\n]+)/$1 [$2]($post->{uri})/sm;
 
+			# apply wikilinks
+			$md_body = $s->mext_pre_links($md_body);
+
 			push @md_posts, $md_body;
 		}
 
 		# pagination
 		my $count = $s->{app}->{db}->query( count => 1, where => $where );
 
-		my $total_pages = int($count / $items_per_page) + ( $count % $items_per_page ? 1 : 0 );
+		my $total_pages = int( $count / $items_per_page ) + ( $count % $items_per_page ? 1 : 0 );
 
 		if ( $total_pages > 1 ) {
 
@@ -301,7 +306,6 @@ sub markdown_apply_extensions {
 			push( @items, $prev > 0 ? qq{<a href="$uri?page=$prev">&lt;</a>} : "&lt;" );
 
 			foreach my $n ( 1 .. $total_pages ) {
-				print STDERR "\e[1m\t$n of $total_pages\e[m\n";
 				push @items, ( $n == $page ? $n : qq{<a href="$uri?page=$n">$n</a>} );
 			}
 
@@ -310,9 +314,8 @@ sub markdown_apply_extensions {
 
 			push( @items, $page < $total_pages ? qq{<a href="$uri?page=$total_pages">&gt;&gt;</a>} : "&gt;&gt;" );
 
-			my $items = join( '', map {qq{\t<span>$_</span>\n}} @items );
+			my $items = join( '', map { qq{\t<span>$_</span>\n} } @items );
 			my $div   = qq{<div class="pagination"><span>Páginas</span>$items</div>};
-			print STDERR "\e[1m$div\e[m\n";
 			push @md_posts, $div;
 
 		}
@@ -320,6 +323,54 @@ sub markdown_apply_extensions {
 		my $md_posts = join "\n\n----\n\n", @md_posts;
 		my $md       = CommonMark->parse( string => $md_posts );
 		my $html     = $s->markdown_render($md);
+
+		$node->set_literal($html);
+
+	}
+	elsif ( $node->get_type == NODE_HTML_BLOCK && $node->get_literal =~ m/^<!--#index-table\s+(?<options>.*?)\s*-->/ ) {
+
+		my $options = eval { decode_json( $+{options} ) } // { defaults => 1 };
+
+		my $where;
+
+		if ( $options->{tag} || $options->{tags} ) {
+			my @tags;
+			push( @tags, $options->{tag} )       if $options->{tag};
+			push( @tags, @{ $options->{tags} } ) if ref( $options->{tags} ) eq 'ARRAY';
+
+			$where .= 'AND (' . join( ' OR ', map { "tags like '%\"$_\"%'" } @tags ) . ') ';
+		}
+
+		my @items = $s->{app}->{db}->query(
+			where      => $where,
+			order      => 'order by title',
+			parse_meta => 1,
+		);
+
+		my @rows;
+
+		my @columns = ref( $options->{columns} ) eq 'ARRAY' ? @{ $options->{columns} } : ( [ link => 'Link' ] );
+
+		my @th = map { qq{<th>$_->[1]</th>} } @columns;
+		push( @rows, join( "\n", '<tr>', @th, '</tr>' ) );
+
+		foreach my $item (@items) {
+			my @values;
+			foreach my $col (@columns) {
+
+				my ( $key, $name ) = @{$col};
+
+				push @values, $item->{$key};
+
+			}
+
+			my $row = join( "\n", '<tr>', map( { qq{<td>$_</td>} } @values ), '</tr>' );
+			push @rows, $row;
+		}
+
+		my @html = ( '<table class="index-table">', map( { qq{<tr>$_</tr>} } @rows ), '</table>' );
+
+		my $html = join( "\n", @html );
 
 		$node->set_literal($html);
 
@@ -353,18 +404,22 @@ sub mext_pre_links {
 		}
 		else {
 			$text = $inner;
-			$uri  = $inner;
+			$uri  = lc($inner);
 		}
 
-		$uri =~ s/ /+/g;
+		$uri =~ s/ /_/g;
+		$uri =~ tr/áéíóúüñ/aeiouun/;
 
-		return qq{[$text]($uri)};
+		$uri = $s->{app}->{db}->get_absolute_uri($uri);
+
+		return $uri ? qq{[$text]($uri)} : "[[$inner]]";
 
 	};
 
-	$txt =~ s/(!)*\[\[(.*?)\]\]/&$parse($1,$2)/meg;
+	my $newtxt = $txt;
+	$newtxt =~ s/(!)*\[\[(.*?)\]\]/&$parse($1,$2)/meg;
 
-	return $txt;
+	return $newtxt;
 
 }
 

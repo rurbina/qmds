@@ -3,6 +3,7 @@ package qmds;
 use common::sense;
 use File::Slurper 'read_text';
 use File::MimeInfo::Magic;
+use List::Util qw(any);
 use Encode;
 use render;
 
@@ -27,6 +28,10 @@ sub dispatch {
 	my ( $s, $uri ) = @_;
 
 	$uri = "/$s->{config}->{default}" if $uri eq '/';
+
+	if ( $uri eq '/!rescan' ) {
+		return ( 200, $s->rescan() );
+	}
 
 	if ( my $mdfile = $s->get_file_from_uri($uri) ) {
 		push @{ $s->{app}->{headers} }, ( 'Content-Type' => 'text/html; charset=UTF-8' );
@@ -78,6 +83,66 @@ sub get_static_file_from_uri {
 	}
 
 	return;
+
+}
+
+sub rescan {
+
+	my ( $s, %args ) = @_;
+
+	my @paths    = &arrayitize( $s->{config}->{md_root} );
+	my @suffixes = &arrayitize( $s->{config}->{md_suffix} );
+
+	my @dirs = $args{dirs} ? @{ $args{dirs} } : ".";
+
+	my $render = render->new($s);
+
+	# scan for files and recursive paths
+	foreach my $base (@paths) {
+		foreach my $dir (@dirs) {
+
+			opendir DIR, "$base/$dir";
+			my @dir = readdir(DIR);
+			close DIR;
+
+			foreach my $item (@dir) {
+
+				next if $item =~ m/^\./;
+				my $path     = "$base/$dir/$item";
+				my $uri      = "/$dir/$item";
+				my ($suffix) = grep { $item =~ m/$_$/ ? $_ : undef } @suffixes;
+				$uri =~ s!/./!/!;
+				$uri =~ s/$suffix$//g if $suffix;
+
+				if ( -f $path && $suffix ) {
+					print "\e[32m$path\e[m\n";
+					$render->markdown( filename => $path, uri => $uri, touch_only => 1 );
+				}
+				elsif ( -d $path ) {
+					print "\e[34m$path\e[m\n";
+					$s->rescan( dirs => ["$dir/$item"] );
+				}
+
+			}
+		}
+	}
+
+	if ( !$args{dirs} ) {
+		my @check_docs = $s->{app}->{db}->query();
+
+		foreach my $doc (@check_docs) {
+
+			if ( any( sub { -f decode( 'utf8', $doc->{path} ) }, @paths ) ) {
+			}
+			else {
+				$s->{app}->{db}->delete_uri( $doc->{uri} );
+				print STDERR "\e[31m$doc->{path} deleted\e[m\n";
+			}
+		}
+
+	}
+
+	return "rescan ok\n";
 
 }
 
