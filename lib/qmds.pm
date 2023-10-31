@@ -57,10 +57,25 @@ sub get_file_from_uri {
 	foreach my $path (@paths) {
 		foreach my $suffix (@suffixes) {
 			my $filename = $path . $uri . $suffix;
-			if ( -e $filename ) {
+			if ( -f $filename ) {
 				return $filename;
 			}
+
+			my $mangled = $filename;
+			$mangled =~ s/_/ /g;
+			$mangled =~ tr/áéíóúüñ/aeiouun/;
+			if ( -f $mangled ) {
+				return $mangled;
+			}
 		}
+	}
+
+	# check cached
+	my ($item) = $s->{app}->{db}->query( where => "and uri = '$uri'" );
+	if ($item) {
+		my $path = $item->{path};
+		die "\e[1mfile not found! $path\e[m" if !-f $path;
+		return $path;
 	}
 
 	return;
@@ -108,18 +123,23 @@ sub rescan {
 			foreach my $item (@dir) {
 
 				next if $item =~ m/^\./;
-				my $path     = "$base/$dir/$item";
-				my $uri      = "/$dir/$item";
+				my $path = "$base/$dir/$item";
+				$path =~ s!/./!/!;
+				$path = Encode::decode( 'utf8', $path );
+
+				my $uri = Encode::decode( 'utf8', "/$dir/$item" );
 				my ($suffix) = grep { $item =~ m/$_$/ ? $_ : undef } @suffixes;
+
+				$uri = lc($uri);
 				$uri =~ s!/./!/!;
+				$uri =~ s! !_!g;
+				$uri =~ tr/áéíóúüñ/aeiouun/;
 				$uri =~ s/$suffix$//g if $suffix;
 
 				if ( -f $path && $suffix ) {
-					print "\e[32m$path\e[m\n";
 					$render->markdown( filename => $path, uri => $uri, touch_only => 1 );
 				}
 				elsif ( -d $path ) {
-					print "\e[34m$path\e[m\n";
 					$s->rescan( dirs => ["$dir/$item"] );
 				}
 
@@ -136,7 +156,6 @@ sub rescan {
 			}
 			else {
 				$s->{app}->{db}->delete_uri( $doc->{uri} );
-				print STDERR "\e[31m$doc->{path} deleted\e[m\n";
 			}
 		}
 

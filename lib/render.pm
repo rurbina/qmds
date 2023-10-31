@@ -97,6 +97,51 @@ sub markdown_apply_extensions {
 
 	if ( $node->get_type == NODE_TEXT ) {
 	}
+	elsif ( $node->get_type == NODE_PARAGRAPH && ( $node->first_child ? $node->first_child->get_literal =~ m/^\|/ : undef ) ) {
+
+		# markdown tables
+		my @children = $node->get_children;
+
+		# rows are separated by softbreaks
+		my @rows;
+		my $row = [];
+		foreach my $child (@children) {
+			if ( $child->get_type_string eq 'softbreak' ) {
+				push @rows, $row;
+				$row = [];
+			}
+			else {
+				push @$row, $child;
+			}
+		}
+		push @rows, $row if @$row;
+
+		# properly convert rows to html
+		my @html_rows;
+		foreach my $row (@rows) {
+
+			next if $row->[0]->get_literal =~ m/\|-+\|/;
+
+			my $p    = CommonMark->create_paragraph( children => $row );
+			my $html = $p->render_html;
+
+			$html =~ s/^<p>\|\s*/<td>/s;
+			$html =~ s/\s*\|<\/p>/<\/td>/s;
+			$html =~ s/\s*(?<!\\)\|\s*/<\/td><td>/g;
+
+			push @html_rows, $html;
+		}
+
+		$html_rows[0] =~ s/(<\/?)td(>)/\1th\2/g;
+
+		my @html = ( '<table>', map( { ( '<tr>', $_, '</tr>' ) } @html_rows ), '</table>' );
+		my $html = join( "\n", @html );
+		$html =~ s/\n+/\n/g;
+
+		my $new_node = CommonMark->create_html_block( literal => $html );
+		$node->replace($new_node);
+
+	}
 	elsif ( $node->get_type == NODE_BLOCK_QUOTE ) {
 
 		# check for callouts
@@ -327,9 +372,12 @@ sub markdown_apply_extensions {
 		$node->set_literal($html);
 
 	}
-	elsif ( $node->get_type == NODE_HTML_BLOCK && $node->get_literal =~ m/^<!--#index-table\s+(?<options>.*?)\s*-->/ ) {
+	elsif ( $node->get_type == NODE_HTML_BLOCK && $node->get_literal =~ m/^<!--#index-table\s+(?<options>.*?)-->/ ) {
 
 		my $options = eval { decode_json( $+{options} ) } // { defaults => 1 };
+		if ( $options->{defaults} ) {
+			print STDERR "\e[31mindex-table options not parsed: $+{options}\e[m\n";
+		}
 
 		my $where;
 
@@ -339,6 +387,10 @@ sub markdown_apply_extensions {
 			push( @tags, @{ $options->{tags} } ) if ref( $options->{tags} ) eq 'ARRAY';
 
 			$where .= 'AND (' . join( ' OR ', map { "tags like '%\"$_\"%'" } @tags ) . ') ';
+		}
+
+		if ( $options->{headers_like} ) {
+			$where .= "AND headers LIKE '$options->{headers_like}' ";
 		}
 
 		my @items = $s->{app}->{db}->query(
@@ -410,7 +462,10 @@ sub mext_pre_links {
 		$uri =~ s/ /_/g;
 		$uri =~ tr/áéíóúüñ/aeiouun/;
 
-		$uri = $s->{app}->{db}->get_absolute_uri($uri);
+		# smart match uris with no path
+		if ( $uri !~ m/^(\.\.|https?|\/)/ ) {
+			$uri = $s->{app}->{db}->get_absolute_uri($uri);
+		}
 
 		return $uri ? qq{[$text]($uri)} : "[[$inner]]";
 
