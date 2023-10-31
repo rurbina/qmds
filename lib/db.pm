@@ -4,6 +4,7 @@ use DBI;
 use DBD::SQLite;
 use DBD::SQLite::Constants ':dbd_sqlite_string_mode';
 use JSON::XS;
+use Encode;
 use Data::Dumper qw(Dumper);
 $Data::Dumper::SortKeys = 1;
 
@@ -87,9 +88,10 @@ sub query {
 
 		foreach my $item (@rows) {
 
-			$item->{link} = qq{<a href="$item->{uri}">$item->{title}</a>};
+			my $link_title = $item->{title} // $item->{uri};
+			$item->{link} = qq{<a href="$item->{uri}">$link_title</a>};
 
-			my $meta = eval { decode_json( $item->{headers} ) } // {};
+			my $meta = decode_json( Encode::encode( 'utf8', $item->{headers} ) );
 			foreach my $key ( sort keys %$meta ) {
 				$item->{"meta_$key"} = $meta->{$key};
 			}
