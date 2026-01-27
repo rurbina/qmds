@@ -164,8 +164,14 @@ sub markdown_apply_extensions {
 			# this one may not work if title is not set
 			eval { $node->first_child->first_child->unlink };
 
-			my ( $icon, $title ) = $heading =~ m/^\w*\[!(.*?)\]\w*(.*?)\w*$/;
+			my ( $icon, $title ) = $heading =~ m/^\s*\[!(.*?)\]\s*(.*)$/;
+			my $autotitle = 1 unless $title;
 			$title = ucfirst($icon) unless $title;
+			if ( $title =~ m/^(#+)\s*(.*)$/ ) {
+				my $level = length($1);
+				$title = qq{<h$level>$2</h$level>};
+			}
+			my $title_block = CommonMark->create_html_block( literal => $title );
 
 			# extract all children
 			my @children;
@@ -174,7 +180,7 @@ sub markdown_apply_extensions {
 
 			# create heading block
 			my $heading_node = CommonMark->create_custom_block(
-				on_enter => qq{<div class="callout-title">},
+				on_enter => qq{<div class="callout-title" data-autotitle="$autotitle">},
 				on_exit  => qq{</div>},
 				children => [
 					CommonMark->create_custom_block(
@@ -184,7 +190,7 @@ sub markdown_apply_extensions {
 					CommonMark->create_custom_block(
 						on_enter => qq{<div class="callout-title-inner">},
 						on_exit  => qq{</div>},
-						children => [ CommonMark->create_text( literal => $title ) ],
+						children => [ $title_block ],
 					),
 				],
 			);
