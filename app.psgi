@@ -17,14 +17,14 @@ binmode( STDIN,  ':utf8' );
 binmode( STDOUT, ':utf8' );
 binmode( STDERR, ':utf8' );
 
-my $config_file    = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) );
+my $config_file = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) );
 my $default_config = $config_file->{hosts}->{ $config_file->{hostname}->{default} };
 
 my $app = sub {
 
 	my $env = shift;
 
-	my $_host  = $config_file->{hostname}->{ $env->{HTTP_HOST} };
+	my $_host = $config_file->{hostname}->{ $env->{HTTP_HOST} };
 	my $config = $_host ? $config_file->{hosts}->{$_host} : $default_config;
 
 	my $db = db->new( { config => $config } );
