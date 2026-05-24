@@ -17,14 +17,14 @@ binmode( STDIN,  ':utf8' );
 binmode( STDOUT, ':utf8' );
 binmode( STDERR, ':utf8' );
 
-my $config_file = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) );
+my $config_file    = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) );
 my $default_config = $config_file->{hosts}->{ $config_file->{hostname}->{default} };
 
 my $app = sub {
 
 	my $env = shift;
 
-	my $_host = $config_file->{hostname}->{ $env->{HTTP_HOST} };
+	my $_host  = $config_file->{hostname}->{ $env->{HTTP_HOST} };
 	my $config = $_host ? $config_file->{hosts}->{$_host} : $default_config;
 
 	my $db = db->new( { config => $config } );
@@ -49,6 +49,7 @@ my $app = sub {
 	if ( ref( $self->{body}->[0] ) eq 'GLOB' ) {
 		$self->{body} = $self->{body}->[0];
 	}
+	$self->{headers} = [] unless ref( $self->{headers} ) eq 'ARRAY';
 
 	if ( $self->{status} != 200 && exists( $config->{"error_$self->{status}"} ) ) {
 		( undef, $self->{body}->[0] ) = capture_stdout sub { $handler->dispatch( $config->{"error_$self->{status}"} ) };

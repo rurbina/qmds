@@ -52,9 +52,9 @@ sub dispatch {
 	}
 	else {
 
-		my $out = { code => 500, content => '', headers => [] };
+		my $out = { code => 404, content => '', headers => [] };
 
-		my $return = $s->{controller}->$sub if $s->{controller} && $s->{controller}->can($sub);
+		my $return = $s->{controller}->$sub() if $s->{controller} && $s->{controller}->can($sub);
 
 		if ( ref($return) eq 'HASH' ) {
 			$out->{content} = $return->{content} if $return->{content};
@@ -71,6 +71,7 @@ sub dispatch {
 			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
 			$out->{content} = Encode::encode_utf8( render->new($s)->markdown( uri => $uri, filename => $mdfile ) );
 		}
+
 		return ( $out->{code}, $out->{content}, $out->{headers} );
 
 	}
