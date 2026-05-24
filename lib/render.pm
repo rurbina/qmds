@@ -12,6 +12,7 @@ use Try::Tiny;
 use List::Util qw(any);
 use Data::Dumper qw(Dumper);
 use tt;
+use URI::Escape qw(uri_escape_utf8);
 $Data::Dumper::SortKeys = 1;
 
 sub new {
@@ -273,7 +274,7 @@ sub markdown_apply_extensions {
 
 		$url = $node->get_url;
 
-		next unless scalar $node->get_children;
+		return $node unless scalar $node->get_children;
 
 		$text = $node->first_child->get_literal // '';
 
@@ -455,7 +456,12 @@ sub mext_pre_links {
 
 		my ( $is_pic, $inner ) = @_;
 
-		if ($is_pic) { return qq{![$inner]($inner)}; }
+		if ($is_pic) {
+			my $uri = $inner;
+			$uri = uri_escape_utf8($uri);
+			$uri = $s->{config}->{image_prefix}.$uri if $s->{config}->{image_prefix};
+			return qq{![$inner]($uri)};
+		}
 
 		my ( $uri, $text );
 

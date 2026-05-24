@@ -68,6 +68,7 @@ sub dispatch {
 			$out->{content} = Encode::encode_utf8($rendered);
 		}
 		elsif ( my $mdfile = $s->get_file_from_uri($uri) ) {
+			$out->{code}    = 200;
 			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
 			$out->{content} = Encode::encode_utf8( render->new($s)->markdown( uri => $uri, filename => $mdfile ) );
 		}
