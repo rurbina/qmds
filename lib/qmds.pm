@@ -15,11 +15,16 @@ sub new {
 	my ( $class, $app ) = @_;
 
 	my $qmds = {
-		app    => $app,
-		config => $app->{config},
+		app        => $app,
+		config     => $app->{config},
+		controller => undef,
 	};
 
 	bless $qmds;
+
+	$qmds->{controller} = $qmds->load_controller( $app->{config}->{controller} );
+
+	return $qmds;
 
 }
 
@@ -29,18 +34,45 @@ sub dispatch {
 
 	$uri = "/$s->{config}->{default}" if $uri eq '/';
 
+	my $sub = $uri;
+	$sub =~ s{^/}{};
+	$sub =~ s{/}{__}g;
+
+	if ( $uri eq '/!debug' ) {
+		my $out = Dumper $s;
+		return ( 200, $out, [ 'Content-Type' => 'text/plain' ] );
+	}
+
 	if ( $uri eq '/!rescan' ) {
 		return ( 200, $s->rescan() );
 	}
 
-	if ( my $mdfile = $s->get_file_from_uri($uri) ) {
-		push @{ $s->{app}->{headers} }, ( 'Content-Type' => 'text/html; charset=UTF-8' );
-		my $tt_out = render->new($s)->markdown( uri => $uri, filename => $mdfile );
-		return ( 200, Encode::encode_utf8($tt_out) );
-	}
-
 	if ( my $static = $s->get_static_file_from_uri($uri) ) {
 		return ( 200, $static );
+	}
+	else {
+
+		my $out = { code => 500, content => '', headers => [] };
+
+		my $return = $s->{controller}->$sub if $s->{controller} && $s->{controller}->can($sub);
+
+		if ( ref($return) eq 'HASH' ) {
+			$out->{content} = $return->{content} if $return->{content};
+			$out->{code}    = $return->{code}    if $return->{code};
+			$out->{headers} = $return->{headers} if $return->{headers};
+		}
+		elsif ($return) {
+			$out->{code}    = 200;
+			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
+			my $rendered = render->new($s)->markdown( uri => $uri, content => $return );
+			$out->{content} = Encode::encode_utf8($rendered);
+		}
+		elsif ( my $mdfile = $s->get_file_from_uri($uri) ) {
+			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
+			$out->{content} = Encode::encode_utf8( render->new($s)->markdown( uri => $uri, filename => $mdfile ) );
+		}
+		return ( $out->{code}, $out->{content}, $out->{headers} );
+
 	}
 
 	return ( 404, undef );
@@ -170,6 +202,20 @@ sub arrayitize {
 	my ($scalar) = @_;
 
 	return ref($scalar) eq 'ARRAY' ? @{$scalar} : ($scalar);
+
+}
+
+sub load_controller {
+
+	my ( $s, $filename ) = @_;
+
+	return unless -e $filename;
+
+	require $filename;
+
+	if ( controller->can('new') ) {
+		return controller->new($s);
+	}
 
 }
 

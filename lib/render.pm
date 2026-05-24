@@ -24,6 +24,13 @@ sub new {
 		tt     => {
 			headers => {},
 			body    => '',
+			data    => {
+				get     => $app->{app}->{get},
+				post    => $app->{app}->{post},
+				cookies => $app->{app}->{cookies},
+				session => $app->{app}->{session},
+				%{ $app->{app}->{session}->{data} },
+			},
 		},
 	};
 
@@ -35,9 +42,9 @@ sub get_file {
 
 	my ( $s, %arg ) = @_;
 
-	die 'unreadable file' unless -r $arg{filename};
+	die 'unreadable file' if !-r $arg{filename} && !$arg{content};;
 
-	my $file = read_text( $arg{filename} );
+	my $file = $arg{content} // read_text( $arg{filename} );
 
 	my ( $file_headers, $file_body );
 
@@ -58,11 +65,12 @@ sub markdown {
 
 	my ( $s, %arg ) = @_;
 
-	die 'bad file descriptor' unless $arg{filename};
+	die 'bad file descriptor' if !$arg{filename} && !$arg{content};
 
 	my $md;
 
-	my ( $headers, $file_body ) = try { $s->get_file( filename => $arg{filename} ) } catch { return ( 404, undef ) };
+	my ( $headers, $file_body ) = eval { $s->get_file( content => $arg{content}, filename => $arg{filename} ) };
+	return ( 404, undef ) if !$headers && !$file_body;
 
 	$s->{tt}->{headers} = $headers;
 
