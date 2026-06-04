@@ -22,7 +22,9 @@ sub new {
 
 	bless $qmds;
 
-	$qmds->{controller} = $qmds->load_controller( $app->{config}->{controller} );
+	if ( $app->{config}->{controller} ) {
+		$qmds->{controller} = $qmds->load_controller( $app->{config}->{controller} );
+	}
 
 	return $qmds;
 
@@ -47,6 +49,14 @@ sub dispatch {
 		return ( 200, $s->rescan() );
 	}
 
+	if ( $uri eq '/!up' ) {
+		return ( 200, 'OK', [ 'Content-Type' => 'text/plain' ] );
+	}
+
+	if ( $s->{controller} && $s->{controller}->can('_check_access') && !$s->{controller}->_check_access($uri) ) {
+		return ( 403, undef );
+	}
+
 	if ( my $static = $s->get_static_file_from_uri($uri) ) {
 		return ( 200, $static );
 	}
@@ -54,12 +64,16 @@ sub dispatch {
 
 		my $out = { code => 404, content => '', headers => [] };
 
-		my $return = $s->{controller}->$sub() if $s->{controller} && $s->{controller}->can($sub);
+		my $return;
+
+		if ( $s->{controller} && $s->{controller}->can($sub) ) {
+			$return = $s->{controller}->$sub();
+		}
 
 		if ( ref($return) eq 'HASH' ) {
-			$out->{content} = $return->{content} if $return->{content};
-			$out->{code}    = $return->{code}    if $return->{code};
-			$out->{headers} = $return->{headers} if $return->{headers};
+			foreach ( qw(code content headers) ) {
+				$out->{$_} = $return->{$_} if $return->{$_};
+			}
 		}
 		elsif ($return) {
 			$out->{code}    = 200;
@@ -213,7 +227,7 @@ sub load_controller {
 
 	return unless -e $filename;
 
-	require $filename;
+	require $filename or die "couldnt require $filename";
 
 	if ( controller->can('new') ) {
 		return controller->new($s);
