@@ -24,6 +24,22 @@ sub new {
 
 	bless $s;
 
+	$s->create_schema();
+
+	return $s;
+
+}
+
+sub create_schema {
+
+	my ($s) = @_;
+
+	my $sql = qq{
+	create table if not exists meta_index (uri primary key, path, mtime, title, last_check, tags, headers);
+	};
+
+	$s->{dbh}->do($sql);
+
 }
 
 sub touch {
