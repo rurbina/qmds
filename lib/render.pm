@@ -20,9 +20,10 @@ sub new {
 	my ( $class, $app ) = @_;
 
 	my $s = {
-		app    => $app->{app},
-		config => $app->{config},
-		tt     => {
+		app       => $app->{app},
+		variables => $app->{tt}->{variables},
+		config    => $app->{config},
+		tt        => {
 			headers => {},
 			body    => '',
 			data    => {
@@ -30,7 +31,7 @@ sub new {
 				post    => $app->{app}->{post},
 				cookies => $app->{app}->{cookies},
 				session => $app->{app}->{session},
-				%{ $app->{app}->{session}->{data} },
+				%{ $app->{app}->{data} },
 			},
 		},
 	};
@@ -515,6 +516,8 @@ sub template {
 		{
 			ENCODING     => 'UTF-8',
 			INCLUDE_PATH => $s->{config}->{template_path},
+
+			VARIABLES => $s->{variables},
 
 			#LOAD_PLUGINS => [ tt->new({}) ],
 			#POST_CHOMP => 1,
