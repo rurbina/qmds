@@ -36,24 +36,28 @@ my $app = sub {
 		config  => $config,
 		uri     => $env->{PATH_INFO},
 		db      => $db,
+		tt      => { variables => {} },
 	};
 
 	my $request = Plack::Request->new($env);
 	$self->{get}     = $request->query_parameters;
 	$self->{post}    = $request->body_parameters;
 	$self->{cookies} = CGI::Cookie->parse( $env->{HTTP_COOKIE} );
+	$self->{data}    = {};
+	$self->{session} = {};
 
 	my $handler = qmds->new($self);
 
 	( $self->{status}, $self->{body}->[0], $self->{headers} ) = $handler->dispatch( $env->{PATH_INFO} );
+
+	if ( $self->{status} != 200 && exists( $config->{"error_$self->{status}"} ) ) {
+		( $self->{status}, $self->{body}->[0], $self->{headers} ) = $handler->dispatch( $config->{"error_$self->{status}"} );
+	}
+
 	if ( ref( $self->{body}->[0] ) eq 'GLOB' ) {
 		$self->{body} = $self->{body}->[0];
 	}
 	$self->{headers} = [] unless ref( $self->{headers} ) eq 'ARRAY';
-
-	if ( $self->{status} != 200 && exists( $config->{"error_$self->{status}"} ) ) {
-		( undef, $self->{body}->[0] ) = capture_stdout sub { $handler->dispatch( $config->{"error_$self->{status}"} ) };
-	}
 
 	return [ @{$self}{ 'status', 'headers', 'body' } ];
 
