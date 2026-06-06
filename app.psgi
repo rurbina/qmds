@@ -7,6 +7,7 @@ use render;
 use db;
 use Plack::Request;
 use JSON::XS 'decode_json';
+use YAML::XS;
 use File::Slurper qw(read_text);
 use Capture::Tiny qw(capture_stdout);
 use CGI::Cookie;
@@ -17,7 +18,7 @@ binmode( STDIN,  ':utf8' );
 binmode( STDOUT, ':utf8' );
 binmode( STDERR, ':utf8' );
 
-my $config_file    = decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) );
+my $config_file = eval { decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // eval { YAML::XS::Load( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // die "config file not found";
 my $default_config = $config_file->{hosts}->{ $config_file->{hostname}->{default} };
 
 my $app = sub {
