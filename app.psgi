@@ -19,6 +19,9 @@ binmode( STDOUT, ':utf8' );
 binmode( STDERR, ':utf8' );
 
 my $config_file = eval { decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // eval { YAML::XS::Load( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // die "config file not found";
+
+bootstrap($config_file);
+
 my $default_config = $config_file->{hosts}->{ $config_file->{hostname}->{default} };
 
 my $app = sub {
@@ -28,7 +31,7 @@ my $app = sub {
 	my $_host  = $config_file->{hostname}->{ $env->{HTTP_HOST} };
 	my $config = $_host ? $config_file->{hosts}->{$_host} : $default_config;
 
-	my $db = db->new( { config => $config } );
+	my $db = db->new( { config => $config } ) || die 'db connection failed';
 
 	my $self = {
 		status  => 200,
@@ -49,16 +52,10 @@ my $app = sub {
 	$self->{data}    = {};
 	$self->{session} = {};
 
-	foreach my $key ( %{$self->{get}} ) {
-		$self->{get}->{$key} = decode_utf8( $self->{get}->{$key} );
-	}
-
-	foreach my $key ( %{$self->{post}} ) {
-		$self->{post}->{$key} = decode_utf8( $self->{post}->{$key} );
-	}
-
-	foreach my $key ( %{$self->{cookies}} ) {
-		$self->{cookies}->{$key} = decode_utf8( $self->{cookies}->{$key} );
+	foreach my $group ( qw(get post cookies) ) {
+		foreach my $key ( %{$self->{$group}} ) {
+			$self->{$group}->{$key} = decode_utf8( $self->{$group}->{$key} );
+		}
 	}
 
 	my $handler = qmds->new($self);
@@ -77,3 +74,37 @@ my $app = sub {
 	return [ @{$self}{ 'status', 'headers', 'body' } ];
 
 };
+
+sub bootstrap {
+
+	my ($config) = @_;
+
+	foreach my $host_key ( keys %{ $config->{hosts} } ) {
+
+		my $host = $config->{hosts}->{$host_key};
+
+		$host->{template_path} //= $host->{path} . '/tt';
+		$host->{template}      //= 'base.tt';
+		$host->{view_path}     //= $host->{path} . '/view';
+		$host->{static_root}   //= $host->{path} . '/shared';
+		$host->{md_suffix}     //= ['.md'];
+		$host->{default}       //= 'index';
+
+		die "$host_key: no md_root defined" unless $host->{md_root};
+
+		my $db = db->new( { config => $host } );
+
+		$db->bootstrap_db();
+
+		if ( defined( $host->{controller} ) ) {
+			do {
+				eval { require $host->{controller}; 1 }
+				or eval { require $host->{path} . '/' . $host->{controller}; 1 }
+				or die "$host_key: $host->{controller} could not be loaded";
+				controller::_bootstrap() if controller->can('_bootstrap');
+			};
+		}
+
+	}
+
+}

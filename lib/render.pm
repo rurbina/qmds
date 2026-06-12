@@ -317,7 +317,7 @@ sub markdown_apply_extensions {
 		my $offset         = ( $page - 1 ) * $items_per_page;
 
 		my $where = qq{and tags like '%"blog"%'};
-		my @posts = $s->{app}->{db}->query(
+		my @posts = $s->{app}->{db}->query_index(
 			where  => $where,
 			offset => $offset,
 			limit  => $items_per_page,
@@ -351,7 +351,7 @@ sub markdown_apply_extensions {
 		}
 
 		# pagination
-		my $count = $s->{app}->{db}->query( count => 1, where => $where );
+		my $count = $s->{app}->{db}->query_index( count => 1, where => $where );
 
 		my $total_pages = int( $count / $items_per_page ) + ( $count % $items_per_page ? 1 : 0 );
 
@@ -409,7 +409,7 @@ sub markdown_apply_extensions {
 			$where .= "AND headers LIKE '$options->{headers_like}' ";
 		}
 
-		my @items = $s->{app}->{db}->query(
+		my @items = $s->{app}->{db}->query_index(
 			where      => $where,
 			order      => 'order by title',
 			parse_meta => 1,

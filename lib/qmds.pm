@@ -6,6 +6,8 @@ use File::MimeInfo::Magic;
 use List::Util qw(any);
 use Encode;
 use render;
+use Scalar::Util 'blessed';
+use File::Basename;
 
 use Data::Dumper 'Dumper';
 $Data::Dumper::Sortkeys = 1;
@@ -57,18 +59,12 @@ sub dispatch {
 		return ( 403, undef );
 	}
 
-	if ( my $static = $s->get_static_file_from_uri($uri) ) {
-		return ( 200, $static );
-	}
-	else {
+	if ( $s->{controller} && $s->{controller}->can($sub) ) {
 
 		my $out = { code => 404, content => '', headers => [] };
 
-		my $return;
-
-		if ( $s->{controller} && $s->{controller}->can($sub) ) {
-			$return = $s->{controller}->$sub();
-		}
+		my $return = $s->{controller}->$sub();
+		my $controller_output = 1;
 
 		if ( ref($return) eq 'HASH' ) {
 			foreach ( qw(code content headers) ) {
@@ -81,14 +77,20 @@ sub dispatch {
 			my $rendered = render->new($s)->markdown( uri => $uri, content => $return );
 			$out->{content} = Encode::encode_utf8($rendered);
 		}
-		elsif ( my $mdfile = $s->get_file_from_uri($uri) ) {
+		elsif ( my $mdfile = $s->get_file_from_uri($uri, $controller_output) ) {
 			$out->{code}    = 200;
 			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
 			$out->{content} = Encode::encode_utf8( render->new($s)->markdown( uri => $uri, filename => $mdfile ) );
 		}
+		elsif ( my $static = $s->get_static_file_from_uri($uri) ) {
+			return ( 200, $static );
+		}
 
 		return ( $out->{code}, $out->{content}, $out->{headers} );
 
+	}
+	elsif ( my $static = $s->get_static_file_from_uri($uri) ) {
+		return ( 200, $static );
 	}
 
 	return ( 404, undef );
@@ -97,10 +99,14 @@ sub dispatch {
 
 sub get_file_from_uri {
 
-	my ( $s, $uri ) = @_;
+	my ( $s, $uri, $view ) = @_;
 
 	my @paths    = &arrayitize( $s->{config}->{md_root} );
 	my @suffixes = &arrayitize( $s->{config}->{md_suffix} );
+
+	if ( $view ) {
+		unshift( @paths, $s->{config}->{view_path} );
+	}
 
 	foreach my $path (@paths) {
 		foreach my $suffix (@suffixes) {
@@ -119,7 +125,7 @@ sub get_file_from_uri {
 	}
 
 	# check cached
-	my ($item) = $s->{app}->{db}->query( where => "and uri = '$uri'" );
+	my ($item) = $s->{app}->{db}->query_index( where => "and uri = '$uri'" );
 	if ($item) {
 		my $path = $item->{path};
 		die "\e[1mfile not found! $path\e[m" if !-f $path;
@@ -196,7 +202,7 @@ sub rescan {
 	}
 
 	if ( !$args{dirs} ) {
-		my @check_docs = $s->{app}->{db}->query();
+		my @check_docs = $s->{app}->{db}->query_index();
 
 		foreach my $doc (@check_docs) {
 
@@ -225,12 +231,16 @@ sub load_controller {
 
 	my ( $s, $filename ) = @_;
 
-	return unless -e $filename;
+	return unless -e $filename || -e $s->{config}->{path} . '/' . $filename;
 
-	require $filename or die "couldnt require $filename";
+	eval { require $filename; 1 }
+	  or eval { require $s->{config}->{path} . '/' . $filename; 1 }
+	  or die "couldnt require $filename";
 
-	if ( controller->can('new') ) {
-		return controller->new($s);
+	my $package = basename( $filename, '.pm' );
+
+	if ( $package->can('new') ) {
+		return $package->new($s);
 	}
 
 }
