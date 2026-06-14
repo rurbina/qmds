@@ -99,7 +99,7 @@ sub insert {
 	$sql =~ s/^INSERT/INSERT OR REPLACE/ if $arg{replace};
 
 	my $sth = $s->{dbh}->prepare($sql) || die Dumper { error => $s->{dbh}->errstr, query => $sql };
-	$sth->execute( @{ $p_data->{params} } );
+	$sth->execute( @{ $p_data->{params} } ) || die Dumper { error => $s->{dbh}->errstr, query => $sql };
 	$sth->finish();
 
 }
@@ -121,7 +121,7 @@ sub upsert {
 	my $sql = qq{INSERT INTO $table ($names) VALUES ($qmarks) ON CONFLICT($conflict_clause) DO UPDATE SET $p_update->{sql}};
 
 	my $sth = $s->{dbh}->prepare($sql) || die Dumper { error => $s->{dbh}->errstr, query => $sql };
-	$sth->execute( @{ $p_data->{params} }, @{ $p_update->{params} } );
+	$sth->execute( @{ $p_data->{params} }, @{ $p_update->{params} } ) || die Dumper { error => $s->{dbh}->errstr, query => $sql };
 	$sth->finish();
 
 }
@@ -136,8 +136,8 @@ sub update {
 	my $sql    = qq{UPDATE $table SET $p_data->{sql} WHERE $p_index->{sql}};
 	my @params = ( @{ $p_data->{params} }, @{ $p_index->{params} } );
 
-	my $sth = eval { $s->{dbh}->prepare($sql) } || die $sql;
-	$sth->execute(@params);
+	my $sth = eval { $s->{dbh}->prepare($sql) } || die Dumper { error => $s->{dbh}->errstr, query => $sql };
+	$sth->execute(@params) || die Dumper { error => $s->{dbh}->errstr, query => $sql };
 	$sth->finish();
 
 }
@@ -338,6 +338,8 @@ sub check_session {
 	$sth->finish();
 
 	if ($username) {
+
+		$s->update( { session_id => $session_id }, { last_touch_time => 'now' }, 'sessions' );
 
 		my $session = {
 			username   => $username,
