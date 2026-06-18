@@ -63,24 +63,24 @@ sub dispatch {
 
 		my $out = { code => 404, content => '', headers => [] };
 
-		my $return = $s->{controller}->$sub();
+		my $return            = $s->{controller}->$sub();
 		my $controller_output = 1;
 
 		if ( ref($return) eq 'HASH' ) {
-			foreach ( qw(code content headers) ) {
+			foreach (qw(code content headers)) {
 				$out->{$_} = $return->{$_} if $return->{$_};
 			}
 		}
 		elsif ($return) {
 			$out->{code}    = 200;
 			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
-			my $rendered = render->new($s)->markdown( uri => $uri, content => $return );
+			my $rendered = $s->{app}->{render}->markdown( uri => $uri, content => $return );
 			$out->{content} = Encode::encode_utf8($rendered);
 		}
-		elsif ( my $mdfile = $s->get_file_from_uri($uri, $controller_output) ) {
+		elsif ( my $mdfile = $s->get_file_from_uri( $uri, $controller_output ) ) {
 			$out->{code}    = 200;
 			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
-			$out->{content} = Encode::encode_utf8( render->new($s)->markdown( uri => $uri, filename => $mdfile ) );
+			$out->{content} = Encode::encode_utf8( $s->{app}->{render}->markdown( uri => $uri, filename => $mdfile ) );
 		}
 		elsif ( my $static = $s->get_static_file_from_uri($uri) ) {
 			return ( 200, $static );
@@ -88,6 +88,13 @@ sub dispatch {
 
 		return ( $out->{code}, $out->{content}, $out->{headers} );
 
+	}
+	elsif ( my $mdfile = $s->get_file_from_uri($uri) ) {
+		my $out;
+		$out->{code}    = 200;
+		$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
+		$out->{content} = Encode::encode_utf8( $s->{app}->{render}->markdown( uri => $uri, filename => $mdfile ) );
+		return ( $out->{code}, $out->{content}, $out->{headers} );
 	}
 	elsif ( my $static = $s->get_static_file_from_uri($uri) ) {
 		return ( 200, $static );
@@ -150,6 +157,8 @@ sub get_static_file_from_uri {
 			return $fh;
 		}
 	}
+
+	print STDERR "\e[31m$uri not found in $s->{config}->{static_root} \e[m\n";
 
 	return;
 

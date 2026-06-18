@@ -8,6 +8,8 @@ use Data::GUID;
 use JSON::XS;
 use Crypt::ScryptKDF qw(scrypt_hash scrypt_hash_verify);
 use Encode;
+use DateTime;
+use DateTime::Format::Strptime;
 use Data::Dumper qw(Dumper);
 $Data::Dumper::SortKeys = 1;
 
@@ -17,6 +19,7 @@ sub new {
 
 	my $s = {
 		app     => $app,
+		config  => $app->{config},
 		db_file => $app->{config}->{db_file},
 		dbh     => undef,
 		json    => JSON::XS->new()->canonical(),
@@ -25,10 +28,15 @@ sub new {
 	$s->{dbh} = DBI->connect( "dbi:SQLite:dbname=$s->{db_file}", "", "" ) || die 'no db';
 	$s->{dbh}->{sqlite_string_mode} = DBD_SQLITE_STRING_MODE_UNICODE_STRICT;
 
-	bless $s;
+	bless $s, $class;
 
 	return $s;
 
+}
+
+sub DESTROY {
+	my ($s) = @_;
+	$s->{dbh}->disconnect if $s->{dbh};
 }
 
 sub bootstrap_db {
@@ -395,7 +403,7 @@ sub get_api_session {
 	my $session_id = 'API_' . Data::GUID->new()->as_string();
 
 	my $session = {
-		user       => $api_key->{username},
+		username       => $api_key->{username},
 		session_id => $session_id,
 		is_api     => 1,
 		data       => {},
@@ -448,6 +456,46 @@ sub session_pop_messages {
 	}
 
 	return wantarray ? @messages : \@messages;
+
+}
+
+sub datetime_parse {
+
+	my ( $s, $timestamp ) = @_;
+
+	if ( $timestamp =~ /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/ ) {
+
+		my $format = DateTime::Format::Strptime->new( pattern => $s->{config}->{date_format} // '%Y-%m-%d %H:%M:%S' );
+		
+		my $dt = DateTime->new(
+			year      => $1,
+			month     => $2,
+			day       => $3,
+			hour      => $4,
+			minute    => $5,
+			second    => $6,
+			time_zone => 'UTC',
+			formatter => $format,
+		);
+		$dt->set_time_zone( $s->{config}->{timezone} );
+		return $dt;
+	}
+	elsif ( $timestamp =~ /^(\d{4})-(\d{2})-(\d{2})$/ ) {
+
+		my $format = DateTime::Format::Strptime->new( pattern => $s->{config}->{date_format} // '%Y-%m-%d %H:%M:%S' );
+		
+		my $dt = DateTime->new(
+			year      => $1,
+			month     => $2,
+			day       => $3,
+			time_zone => $s->{config}->{timezone},
+			formatter => $format,
+		);
+		$dt->set_time_zone( $s->{config}->{timezone} );
+		return $dt;
+	}
+
+	return undef;
 
 }
 

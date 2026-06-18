@@ -20,21 +20,21 @@ sub new {
 	my ( $class, $app ) = @_;
 
 	my $s = {
-		app       => $app->{app},
+		app       => $app,
 		variables => $app->{tt}->{variables},
 		config    => $app->{config},
 		tt        => {
 			headers => {},
-			body    => '',
-			data    => {
-				get     => $app->{app}->{get},
-				post    => $app->{app}->{post},
-				cookies => $app->{app}->{cookies},
-				session => $app->{app}->{session},
-				%{ $app->{app}->{data} },
-			},
+			content => '',
+			data    => $app->{data},
 		},
 	};
+
+	$s->{variables}->{data}    = $app->{data};
+	$s->{variables}->{get}     = $app->{get};
+	$s->{variables}->{post}    = $app->{post};
+	$s->{variables}->{cookies} = $app->{cookies};
+	$s->{variables}->{session} = $app->{session};
 
 	bless $s;
 
@@ -87,7 +87,7 @@ sub markdown {
 
 	$md = CommonMark->parse( string => $file_body, validate_utf8 => 1 ) || die 'file parse error';
 
-	$s->{app}->{db}->touch( uri => $arg{uri}, filename => $arg{filename}, headers => $headers );
+	eval { $s->{app}->{db}->touch( uri => $arg{uri}, filename => $arg{filename}, headers => $headers ) };
 
 	return 1 if $arg{touch_only};
 
@@ -95,9 +95,10 @@ sub markdown {
 
 	return $body if $arg{no_template};
 
-	$s->{tt}->{body} = $body;
+	$s->{tt}->{content} = $body;
+	$s->{tt}->{body} = $s->{tt}->{content};
 
-	return $s->template();
+	return $s->template( template_data => $arg{template_data} );
 
 }
 
@@ -523,13 +524,15 @@ sub template {
 			ENCODING     => 'UTF-8',
 			INCLUDE_PATH => $s->{config}->{template_path},
 
-			VARIABLES => $s->{variables},
+			#WRAPPER => $tt_file,
+			VARIABLES => $s->{app}->{tt}->{variables},
 
 			#LOAD_PLUGINS => [ tt->new({}) ],
 			#POST_CHOMP => 1,
 		}
 	) || die $Template::ERROR;
 
+	#my $result = $tt->process( ( $arg{content} ? \$arg{content} : \$s->{tt}->{content} ), $s->{tt}, \$output, binmode => ':utf8' );
 	my $result = $tt->process( $tt_file, $s->{tt}, \$output, binmode => ':utf8' );
 
 	die $tt->error() unless $result;

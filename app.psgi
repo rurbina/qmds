@@ -40,17 +40,19 @@ my $app = sub {
 		config  => $config,
 		uri     => $env->{PATH_INFO},
 		db      => $db,
+		render  => undef,
 		get     => undef,
 		post    => undef,
 		tt      => { variables => {} },
 	};
 
-	my $request = Plack::Request->new($env);
-	$self->{get}     = $request->query_parameters;
-	$self->{post}    = $request->body_parameters;
-	$self->{cookies} = $request->cookies;
+	$self->{request} = Plack::Request->new($env);
+	$self->{get}     = $self->{request}->query_parameters;
+	$self->{post}    = $self->{request}->body_parameters;
+	$self->{cookies} = $self->{request}->cookies;
 	$self->{data}    = {};
 	$self->{session} = {};
+	$self->{render}  = render->new($self);
 
 	foreach my $group ( qw(get post cookies) ) {
 		foreach my $key ( %{$self->{$group}} ) {
@@ -83,12 +85,14 @@ sub bootstrap {
 
 		my $host = $config->{hosts}->{$host_key};
 
+		$host->{timezone}      //= $config->{timezone} // 'UTC';
 		$host->{template_path} //= $host->{path} . '/tt';
 		$host->{template}      //= 'base.tt';
 		$host->{view_path}     //= $host->{path} . '/view';
 		$host->{static_root}   //= $host->{path} . '/shared';
 		$host->{md_suffix}     //= ['.md'];
 		$host->{default}       //= 'index';
+		$host->{db}            //= $host->{path} . '/metadata.db';
 
 		die "$host_key: no md_root defined" unless $host->{md_root};
 
@@ -96,11 +100,11 @@ sub bootstrap {
 
 		$db->bootstrap_db();
 
-		if ( defined( $host->{controller} ) ) {
+		if ( exists( $host->{controller} ) && defined( $host->{controller} ) ) {
 			do {
 				eval { require $host->{controller}; 1 }
-				or eval { require $host->{path} . '/' . $host->{controller}; 1 }
-				or die "$host_key: $host->{controller} could not be loaded";
+				  or eval { require $host->{path} . '/' . $host->{controller}; 1 }
+				  or die "$host_key: $host->{controller} could not be loaded";
 				controller::_bootstrap() if controller->can('_bootstrap');
 			};
 		}
