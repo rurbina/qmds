@@ -6,6 +6,7 @@ use qmds;
 use render;
 use db;
 use Plack::Request;
+use Plack::Builder;
 use JSON::XS 'decode_json';
 use YAML::XS;
 use File::Slurper qw(read_text);
@@ -75,6 +76,24 @@ my $app = sub {
 
 	return [ @{$self}{ 'status', 'headers', 'body' } ];
 
+};
+
+builder {
+	# %v: Server name
+	# %{X-Forwarded-For}i: The real IP passed by Nginx
+	# %t: Time
+	# "%r": Request line
+	# %>s: Status
+	# %b: Bytes
+	# "%{Referer}i": Referer
+	# "%{User-Agent}i": User Agent
+
+	enable "ContentLength";
+	enable "Head";
+	enable "AccessLog", format => qq{\e[1m%t\e[m\t\e[36m%{Host}i\t\e[m\t%r\t%>s\t%b\t%{X-Forwarded-For}i\t%{Referer}i};
+	enable "HTTPExceptions";
+
+	$app;
 };
 
 sub bootstrap {
