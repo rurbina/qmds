@@ -158,8 +158,6 @@ sub get_static_file_from_uri {
 		}
 	}
 
-	print STDERR "\e[31m$uri not found in $s->{config}->{static_root} \e[m\n";
-
 	return;
 
 }
