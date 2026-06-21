@@ -17,24 +17,25 @@ $Data::Dumper::SortKeys = 1;
 
 sub new {
 
-	my ( $class, $app ) = @_;
+	my ( $class, $qmds ) = @_;
 
 	my $s = {
-		app       => $app,
-		variables => $app->{tt}->{variables},
-		config    => $app->{config},
+		app       => $qmds,
+		db        => $qmds->{db},
+		variables => $qmds->{tt}->{variables},
+		config    => $qmds->{config},
 		tt        => {
 			headers => {},
 			content => '',
-			data    => $app->{data},
+			data    => $qmds->{data},
 		},
 	};
 
-	$s->{variables}->{data}    = $app->{data};
-	$s->{variables}->{get}     = $app->{get};
-	$s->{variables}->{post}    = $app->{post};
-	$s->{variables}->{cookies} = $app->{cookies};
-	$s->{variables}->{session} = $app->{session};
+	$s->{variables}->{data}    = $qmds->{data};
+	$s->{variables}->{get}     = $qmds->{get};
+	$s->{variables}->{post}    = $qmds->{post};
+	$s->{variables}->{cookies} = $qmds->{cookies};
+	$s->{variables}->{session} = $qmds->{session};
 
 	bless $s;
 
@@ -87,7 +88,7 @@ sub markdown {
 
 	$md = CommonMark->parse( string => $file_body, validate_utf8 => 1 ) || die 'file parse error';
 
-	eval { $s->{app}->{db}->touch( uri => $arg{uri}, filename => $arg{filename}, headers => $headers ) };
+	eval { $s->{db}->touch( uri => $arg{uri}, filename => $arg{filename}, headers => $headers ) };
 
 	return 1 if $arg{touch_only};
 

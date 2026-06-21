@@ -171,7 +171,7 @@ sub rescan {
 
 	my @dirs = $args{dirs} ? @{ $args{dirs} } : ".";
 
-	my $render = render->new($s);
+	my $render = $s->{app}->{render};
 
 	# scan for files and recursive paths
 	foreach my $base (@paths) {
@@ -198,6 +198,7 @@ sub rescan {
 				$uri =~ s/$suffix$//g if $suffix;
 
 				if ( -f $path && $suffix ) {
+					print STDERR "\e[32mrescan: $path $uri\e[m\n";
 					$render->markdown( filename => $path, uri => $uri, touch_only => 1 );
 				}
 				elsif ( -d $path ) {
