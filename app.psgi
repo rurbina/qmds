@@ -19,7 +19,7 @@ binmode( STDIN,  ':utf8' );
 binmode( STDOUT, ':utf8' );
 binmode( STDERR, ':utf8' );
 
-my $config_file = eval { decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // eval { YAML::XS::Load( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // die "config file not found";
+my $config_file = &load_config();
 
 bootstrap($config_file);
 
@@ -29,8 +29,8 @@ my $app = sub {
 
 	my $env = shift;
 
-	my $_host  = $config_file->{hostname}->{ $env->{HTTP_HOST} };
-	my $config = $_host ? $config_file->{hosts}->{$_host} : $default_config;
+	my $http_host = $config_file->{hostname}->{ $env->{HTTP_HOST} };
+	my $config    = $http_host ? $config_file->{hosts}->{$http_host} : $default_config;
 
 	my $db = db->new( { config => $config } ) || die 'db connection failed';
 
@@ -95,6 +95,24 @@ builder {
 
 	$app;
 };
+
+sub load_config {
+
+	my $config_file =
+	  eval { decode_json( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // eval { YAML::XS::Load( read_text( $ENV{QMDS_CONFIG} // "qmds.config" ) ) } // die "config file not found";
+
+	if ( !exists( $config_file->{hostname} ) ) {
+		$config_file->{hostname} = {};
+		foreach my $key ( keys %{ $config_file->{hosts} } ) {
+			my $site = $config_file->{hosts}->{$key};
+			foreach my $hostname ( ref( $site->{hostname} ) eq 'ARRAY' ? @{ $site->{hostname} } : $site->{hostname} ) {
+				$config_file->{hostname}->{$hostname} = $key;
+			}
+		}
+	}
+
+	return $config_file;
+}
 
 sub bootstrap {
 
