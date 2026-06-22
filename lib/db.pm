@@ -11,6 +11,7 @@ use Encode;
 use DateTime;
 use DateTime::Format::Strptime;
 use Data::Dumper qw(Dumper);
+use Scalar::Util 'weaken';
 $Data::Dumper::SortKeys = 1;
 
 sub new {
@@ -24,6 +25,8 @@ sub new {
 		dbh     => undef,
 		json    => JSON::XS->new()->canonical(),
 	};
+
+	weaken($s->{app});
 
 	$s->{dbh} = DBI->connect( "dbi:SQLite:dbname=$s->{db_file}", "", "" ) || die 'no db';
 	$s->{dbh}->{sqlite_string_mode} = DBD_SQLITE_STRING_MODE_UNICODE_STRICT;

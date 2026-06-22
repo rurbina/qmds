@@ -13,6 +13,7 @@ use List::Util qw(any);
 use Data::Dumper qw(Dumper);
 use tt;
 use URI::Escape qw(uri_escape_utf8);
+use Scalar::Util 'weaken';
 $Data::Dumper::SortKeys = 1;
 
 sub new {
@@ -30,6 +31,8 @@ sub new {
 			data    => $qmds->{data},
 		},
 	};
+
+	weaken($s->{app});
 
 	$s->{variables}->{data}    = $qmds->{data};
 	$s->{variables}->{get}     = $qmds->{get};

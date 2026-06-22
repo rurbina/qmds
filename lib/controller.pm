@@ -2,6 +2,7 @@ package controller;
 
 use common::sense;
 use db;
+use Scalar::Util 'weaken';
 
 sub _new {
 
@@ -17,6 +18,8 @@ sub _new {
 		session => $qmds->{app}->{session},
 		data    => $qmds->{app}->{data},
 	};
+
+	weaken( $self->{app} );
 
 	if ( $args{db_class} ) {
 		$self->{db} = $args{db_class}->new( $qmds->{app} );
