@@ -102,7 +102,7 @@ sub markdown {
 	$s->{tt}->{content} = $body;
 	$s->{tt}->{body} = $s->{tt}->{content};
 
-	return $s->template( template_data => $arg{template_data} );
+	return $s->template( template => $arg{template}, template_data => $arg{template_data} );
 
 }
 

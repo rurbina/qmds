@@ -67,20 +67,23 @@ sub dispatch {
 		my $controller_output = 1;
 
 		if ( ref($return) eq 'HASH' ) {
-			foreach (qw(code content headers)) {
-				$out->{$_} = $return->{$_} if $return->{$_};
-			}
+			$out->{code}     //= $return->{code};
+			$out->{content}  //= $return->{content};
+			$out->{headers}  //= $return->{headers};
+			$out->{template} //= $return->{template};
 		}
-		elsif ($return) {
+
+		if ( $out->{content} ) {
 			$out->{code}    = 200;
 			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
-			my $rendered = $s->{app}->{render}->markdown( uri => $uri, content => $return );
+			my $rendered = $s->{app}->{render}->markdown( uri => $uri, content => $out->{content}, template => $out->{template} );
 			$out->{content} = Encode::encode_utf8($rendered);
 		}
 		elsif ( my $mdfile = $s->get_file_from_uri( $uri, $controller_output ) ) {
 			$out->{code}    = 200;
 			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
-			$out->{content} = Encode::encode_utf8( $s->{app}->{render}->markdown( uri => $uri, filename => $mdfile ) );
+			my $rendered = $s->{app}->{render}->markdown( uri => $uri, filename => $mdfile, template => $out->{template} );
+			$out->{content} = Encode::encode_utf8($rendered);
 		}
 		elsif ( my $static = $s->get_static_file_from_uri($uri) ) {
 			return ( 200, $static );
