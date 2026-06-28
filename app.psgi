@@ -79,18 +79,10 @@ my $app = sub {
 };
 
 builder {
-	# %v: Server name
-	# %{X-Forwarded-For}i: The real IP passed by Nginx
-	# %t: Time
-	# "%r": Request line
-	# %>s: Status
-	# %b: Bytes
-	# "%{Referer}i": Referer
-	# "%{User-Agent}i": User Agent
 
 	enable "ContentLength";
 	enable "Head";
-	enable "AccessLog", format => qq{\e[1m%t\e[m\t\e[36m%{Host}i\t\e[m\t%r\t%>s\t%b\t%{X-Forwarded-For}i\t%{Referer}i};
+	enable "AccessLog::Timed", format => qq{\e[1m%t\e[m\t\e[36m%{Host}i\t\e[m\t%r\t%>s\t%b\t%{X-Forwarded-For}i\t%{Referer}i\t\e[33m%D\e[m µs};
 	enable "HTTPExceptions";
 
 	$app;
