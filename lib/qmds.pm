@@ -61,23 +61,25 @@ sub dispatch {
 
 	if ( $s->{controller} && $s->{controller}->can($sub) ) {
 
-		my $out = { code => 404, content => '', headers => [] };
+		my $out = { code => 404, content => undef, headers => [] };
 
 		my $return            = $s->{controller}->$sub();
 		my $controller_output = 1;
 
 		if ( ref($return) eq 'HASH' ) {
-			$out->{code}     //= $return->{code};
-			$out->{content}  //= $return->{content};
-			$out->{headers}  //= $return->{headers};
-			$out->{template} //= $return->{template};
+			$out->{code}     = $return->{code}     if defined($return->{code});
+			$out->{content}  = $return->{content}  if defined($return->{content});
+			$out->{headers}  = $return->{headers}  if defined($return->{headers});
+			$out->{template} = $return->{template} if defined($return->{template});
 		}
 
 		if ( $out->{content} ) {
-			$out->{code}    = 200;
-			$out->{headers} = [ 'Content-Type' => 'text/html; charset=UTF-8' ];
-			my $rendered = $s->{app}->{render}->markdown( uri => $uri, content => $out->{content}, template => $out->{template} );
-			$out->{content} = Encode::encode_utf8($rendered);
+			$out->{code}    //= 200;
+			$out->{headers} //= [ 'Content-Type' => 'text/html; charset=UTF-8' ];
+			if ( !defined($out->{content}) ) {
+			    my $rendered = $s->{app}->{render}->markdown( uri => $uri, content => $out->{content}, template => $out->{template} );
+			    $out->{content} = Encode::encode_utf8($rendered);
+			}
 		}
 		elsif ( my $mdfile = $s->get_file_from_uri( $uri, $controller_output ) ) {
 			$out->{code}    = 200;
